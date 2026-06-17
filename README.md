@@ -15,11 +15,29 @@ This repository serves as a cheat sheet and interactive workspace for developers
 
 ---
 
-## 🛠️ Prerequisites
+## 🛠️ Prerequisites & Redis Setup
 
 To run this project locally, you need:
 1. [Node.js](https://nodejs.org/) (v16 or higher recommended)
-2. [Redis Server](https://redis.io/downloads/) running locally on default port `6379` (or via Docker)
+2. **Redis Server** running locally on the default port `6379`.
+
+### 🐳 Option A: Running Redis via Docker (Recommended)
+If you have Docker installed, you can start a Redis container instantly with:
+```bash
+docker run --name local-redis -p 6379:6379 -d redis
+```
+
+### 💻 Option B: Running Redis on Windows
+Since Redis is not natively supported on Windows, we recommend one of the following:
+* **WSL2 (Windows Subsystem for Linux):** Install Ubuntu in WSL2, run `sudo apt update && sudo apt install redis-server`, and start the service with `sudo service redis-server start`.
+* **Docker Desktop:** Use Option A above.
+
+### 🍎 Option C: Running Redis on macOS
+Using Homebrew:
+```bash
+brew install redis
+brew services start redis
+```
 
 ---
 
@@ -27,40 +45,41 @@ To run this project locally, you need:
 
 ### 1. Install Dependencies
 
+Install all node modules (Express, Axios, and ioredis) by running:
 ```bash
 npm install
 ```
 
 ### 2. Run the Examples
 
-Before running, ensure your Redis server is active.
+Before running any script, make sure your Redis server is active.
 
-- **To run the Express Server (API Caching Demo):**
+* **To run the Express Server (API Caching Demo):**
   ```bash
   npm start
   # or: node server.js
   ```
-  *Once started, open `http://localhost:5000/` in your browser. The first request will fetch from JSONPlaceholder and cache it, while subsequent requests will load instantly from Redis!*
+  *Once started, open `http://localhost:5000/` in your browser. The first request fetches data from JSONPlaceholder (slow), while subsequent requests load instantly from memory!*
 
-- **To run Hash commands demo:**
+* **To run Hash commands sandbox:**
   ```bash
   npm run run:hash
   # or: node hash.js
   ```
 
-- **To run String commands demo:**
+* **To run String commands sandbox:**
   ```bash
   npm run run:string
   # or: node string.js
   ```
 
-- **To run List commands demo:**
+* **To run List commands sandbox:**
   ```bash
   npm run run:list
   # or: node list.js
   ```
 
-- **To run Set commands demo:**
+* **To run Set commands sandbox:**
   ```bash
   npm run run:set
   # or: node set.js
@@ -92,7 +111,7 @@ const client = new redis(); // Connects to 127.0.0.1:6379 by default
 module.exports = client;
 ```
 
-### Caching Strategy Example (`server.js`)
+### API Caching Pattern (`server.js`)
 ```javascript
 app.get('/', async (req, res) => {
   // 1. Check if cached data exists in Redis
@@ -112,9 +131,54 @@ app.get('/', async (req, res) => {
 });
 ```
 
+### 📊 API Caching Flow Diagram
+The sequence diagram below visualizes how requests are managed between the client, the backend server, Redis, and the external API:
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor Client
+    participant Express Server
+    participant Redis Cache
+    participant JSONPlaceholder API
+
+    Client->>Express Server: GET /
+    Express Server->>Redis Cache: GET "todo"
+    alt Cache Hit (Data exists in cache)
+        Redis Cache-->>Express Server: Return JSON String
+        Express Server-->>Client: Respond with cached data (Instant!)
+    else Cache Miss (Data is missing)
+        Redis Cache-->>Express Server: null
+        Express Server->>JSONPlaceholder API: GET /todos
+        JSONPlaceholder API-->>Express Server: Return fresh JSON data
+        Express Server->>Redis Cache: SET "todo" (Save data in cache)
+        Express Server-->>Client: Respond with fresh data (Initial load)
+    end
+```
+
 ---
 
-## Implemented Commands Summary
+## 📘 Deep Dive into Data Structures
+
+### 1. Strings (`string.js`)
+Strings are the most basic type of Redis value. Redis strings are binary-safe, meaning they can contain any kind of data (like images or serialized JSON structures) up to 512 MB.
+* **Featured Operations:** TTL-based operations (`SETEX`, `PSETEX`), atomic increment/decrement, and binary offsets/substring commands (`GETRANGE`, `SETBIT`).
+
+### 2. Lists (`list.js`)
+Redis Lists are lists of strings sorted by insertion order. You can push or pop values from both the left (head) and right (tail) of the list.
+* **Featured Operations:** Queue/Stack modeling (`LPUSH`/`RPUSH`), blocking pops (`BLPOP`/`BRPOP`), element indexes, and list size metrics.
+
+### 3. Sets (`set.js`)
+Sets are unordered collections of unique strings. You can perform set mathematics (unions, intersections, differences) very quickly.
+* **Featured Operations:** Set math (`SINTER`, `SUNION`, `SDIFF`), checking membership (`SISMEMBER`), and moving members (`SMOVE`).
+
+### 4. Hashes (`hash.js`)
+Hashes are records represented as field-value pairs, making them the ideal data structure to represent objects (e.g., a "user" object with fields like name, age, city).
+* **Featured Operations:** Field getters/setters (`HSET`, `HGETALL`), math modifiers (`HINCRBYFLOAT`), and incremental scan helpers (`HSCAN`).
+
+---
+
+## 📋 Implemented Commands Summary
 
 ### 🔹 Strings (`string.js`)
 | Command | Description | Command | Description |
@@ -134,7 +198,9 @@ app.get('/', async (req, res) => {
 | `LRANGE` | Get range of list elements | `LLEN` | Get length of the list |
 | `LSET` | Set value of element by index | `LTRIM` | Trim list to specified range |
 | `LINSERT` | Insert element before/after pivot | `LREM` | Remove elements from list |
-| `BLPOP` / `BRPOP` | Blocking pop from head/tail | `RPOPLPUSH` | Pop from one list, push to another |
+| `BLPOP` / `BRPOP` | Blocking pop from head/tail | `BRPOPLPUSH` | Blocking pop list1 to push list2 |
+| `LPUSHX` / `RPUSHX` | Push only if list exists | `RPOPLPUSH` | Pop from one list, push to another |
+| `LINDEX` | Get element by index | | |
 
 ### 🟢 Sets (`set.js`)
 | Command | Description | Command | Description |
@@ -148,7 +214,7 @@ app.get('/', async (req, res) => {
 | `SUNION` | Unions multiple sets | `SUNIONSTORE` | Unions sets & stores result |
 | `SSCAN` | Incrementally iterates set elements | | |
 
-### 🟡 Hashes (`hash.js`) [NEW]
+### 🟡 Hashes (`hash.js`)
 | Command | Description | Command | Description |
 |---|---|---|---|
 | `HSET` / `HGET` | Set & get field value in hash | `HDEL` | Delete field from hash |
@@ -157,6 +223,14 @@ app.get('/', async (req, res) => {
 | `HKEYS` / `HVALS` | Get all keys/values in hash | `HLEN` | Get number of fields in hash |
 | `HMGET` / `HMSET` | Multi field set/get in hash | `HSETNX` | Set field only if it doesn't exist |
 | `HSCAN` | Incrementally iterate hash fields | | |
+
+---
+
+## 🔍 Troubleshooting
+
+* **Error: `ECONNREFUSED 127.0.0.1:6379`**
+  * **Cause:** The Node.js application cannot establish a connection with Redis because the server daemon is not active.
+  * **Resolution:** Ensure Redis is running in the background. Execute `redis-cli ping` in your terminal; you should receive a `PONG` response if it is functioning. If running on Docker, ensure the container is started (`docker start local-redis`).
 
 ---
 
